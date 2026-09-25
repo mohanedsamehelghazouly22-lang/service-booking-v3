@@ -1,0 +1,5 @@
+Build note
+
+The repository is configured to build the Flutter Android project in CI.
+The Flutter SDK/Android SDK are not installed in this local environment, so a local APK build was not claimed as verified.
+GitHub Actions will run flutter analyze, flutter test, and the release build.
