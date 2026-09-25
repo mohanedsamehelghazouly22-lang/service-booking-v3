@@ -1,0 +1,307 @@
+name: Service Booking CI/CD
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - "v*.*.*"
+
+  pull_request:
+    branches:
+      - main
+      - master
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FLUTTER_VERSION: "3.47.0"
+
+jobs:
+
+  # ============================================================
+  # 1. FLUTTER ANALYZE + TEST
+  # ============================================================
+
+  flutter-check:
+    name: Flutter Analyze & Test
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      # Create Android platform files if they don't exist
+      - name: Ensure Android platform
+        run: |
+          if [ ! -f android/app/build.gradle ] && [ ! -f android/app/build.gradle.kts ]; then
+            flutter create . \
+              --platforms=android \
+              --org com.servicebooking \
+              --project-name service_booking
+          fi
+
+      - name: Show Flutter version
+        run: flutter --version
+
+      - name: Get Flutter dependencies
+        run: flutter pub get
+
+      - name: Flutter analyze
+        run: flutter analyze
+
+      - name: Flutter tests
+        run: flutter test
+
+
+  # ============================================================
+  # 2. BUILD RELEASE APK
+  # ============================================================
+
+  build-apk:
+    name: Build Release APK
+
+    runs-on: ubuntu-latest
+
+    needs:
+      - flutter-check
+
+    if: |
+      github.ref == 'refs/heads/main' ||
+      github.ref == 'refs/heads/master' ||
+      startsWith(github.ref, 'refs/tags/v')
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      # Create Android platform files if they don't exist
+      - name: Ensure Android platform
+        run: |
+          if [ ! -f android/app/build.gradle ] && [ ! -f android/app/build.gradle.kts ]; then
+            flutter create . \
+              --platforms=android \
+              --org com.servicebooking \
+              --project-name service_booking
+          fi
+
+      - name: Get Flutter dependencies
+        run: flutter pub get
+
+      # ========================================================
+      # SUPABASE CONFIGURATION
+      # ========================================================
+
+      - name: Validate Supabase configuration
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+
+        run: |
+          if [ -z "$SUPABASE_URL" ]; then
+            echo "ERROR: SUPABASE_URL secret is missing."
+            exit 1
+          fi
+
+          if [ -z "$SUPABASE_KEY" ]; then
+            echo "ERROR: SUPABASE_PUBLISHABLE_KEY secret is missing."
+            exit 1
+          fi
+
+          echo "Supabase configuration found."
+
+      # ========================================================
+      # BUILD APK
+      # ========================================================
+
+      - name: Build Release APK
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+
+        run: |
+          flutter build apk \
+            --release \
+            --dart-define=SUPABASE_URL="$SUPABASE_URL" \
+            --dart-define=SUPABASE_PUBLISHABLE_KEY="$SUPABASE_KEY"
+
+      # ========================================================
+      # PREPARE APK
+      # ========================================================
+
+      - name: Prepare APK
+        run: |
+          mkdir -p release
+
+          cp \
+            build/app/outputs/flutter-apk/app-release.apk \
+            release/Service-Booking.apk
+
+      # ========================================================
+      # UPLOAD APK ARTIFACT
+      # ========================================================
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+
+        with:
+          name: Service-Booking-APK
+          path: release/Service-Booking.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      # ========================================================
+      # CREATE GITHUB RELEASE
+      # ========================================================
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+
+        uses: softprops/action-gh-release@v2
+
+        with:
+          files: release/Service-Booking.apk
+          generate_release_notes: true
+          name: Service Booking ${{ github.ref_name }}
+
+          body: |
+            # Service Booking
+
+            Production Android APK.
+
+            ## Platform
+
+            Android
+
+            ## Flutter
+
+            Flutter 3.47.0 Stable
+
+            ## Backend
+
+            Supabase
+
+            ## Included
+
+            - Customer authentication
+            - Google Sign-In
+            - Phone / OTP authentication
+            - Service browsing
+            - Location selection
+            - Date selection
+            - Time slot selection
+            - Booking confirmation
+            - My Bookings
+            - Provider dashboard
+            - Admin dashboard
+            - Supabase database
+            - Supabase authentication
+            - Secure backend policies
+
+
+  # ============================================================
+  # 3. BUILD ANDROID APP BUNDLE
+  # ============================================================
+
+  build-aab:
+    name: Build Android App Bundle
+
+    runs-on: ubuntu-latest
+
+    needs:
+      - flutter-check
+
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Ensure Android platform
+        run: |
+          if [ ! -f android/app/build.gradle ] && [ ! -f android/app/build.gradle.kts ]; then
+            flutter create . \
+              --platforms=android \
+              --org com.servicebooking \
+              --project-name service_booking
+          fi
+
+      - name: Get Flutter dependencies
+        run: flutter pub get
+
+      # ========================================================
+      # SUPABASE CONFIGURATION
+      # ========================================================
+
+      - name: Validate Supabase configuration
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+
+        run: |
+          if [ -z "$SUPABASE_URL" ]; then
+            echo "ERROR: SUPABASE_URL secret is missing."
+            exit 1
+          fi
+
+          if [ -z "$SUPABASE_KEY" ]; then
+            echo "ERROR: SUPABASE_PUBLISHABLE_KEY secret is missing."
+            exit 1
+          fi
+
+      # ========================================================
+      # BUILD AAB
+      # ========================================================
+
+      - name: Build Release AAB
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+
+        run: |
+          flutter build appbundle \
+            --release \
+            --dart-define=SUPABASE_URL="$SUPABASE_URL" \
+            --dart-define=SUPABASE_PUBLISHABLE_KEY="$SUPABASE_KEY"
+
+      # ========================================================
+      # UPLOAD AAB
+      # ========================================================
+
+      - name: Upload AAB
+        uses: actions/upload-artifact@v4
+
+        with:
+          name: Service-Booking-AAB
+          path: build/app/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+          retention-days: 30
