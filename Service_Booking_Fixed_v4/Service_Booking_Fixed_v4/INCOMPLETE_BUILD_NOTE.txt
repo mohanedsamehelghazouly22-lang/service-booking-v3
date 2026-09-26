@@ -1,0 +1,1 @@
+V4 note: the Flutter/Android SDK is not installed in this execution environment, so release compilation was not executed locally. GitHub Actions is configured to run flutter pub get, flutter analyze, flutter test, and release APK/AAB builds.
